@@ -1,0 +1,28 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.cloudscreen.app-mergeDebugResources-1:/values/values.xml",
+            "map": [
+                {
+                    "source": "/workspaces/cloude/app/src/main/res/values/styles.xml",
+                    "from": {
+                        "startLines": "3",
+                        "startColumns": "4",
+                        "startOffsets": "56",
+                        "endLines": "10",
+                        "endColumns": "12",
+                        "endOffsets": "333"
+                    },
+                    "to": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endLines": "8",
+                        "endColumns": "12",
+                        "endOffsets": "324"
+                    }
+                }
+            ]
+        }
+    ]
+}

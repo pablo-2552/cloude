@@ -1,0 +1,687 @@
+package com.cloudscreen
+
+import android.app.Activity
+import android.graphics.Color
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+
+import org.webrtc.EglBase
+import org.webrtc.IceCandidate
+import org.webrtc.JavaI420Buffer
+import org.webrtc.MediaConstraints
+import org.webrtc.PeerConnection
+import org.webrtc.PeerConnectionFactory
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSource
+import org.webrtc.VideoTrack
+
+import java.nio.ByteBuffer
+import org.java_websocket.client.WebSocketClient
+import org.java_websocket.handshake.ServerHandshake
+import java.net.URI
+import org.json.JSONObject
+
+class MainActivity : Activity() {
+
+    private lateinit var factory: PeerConnectionFactory
+    private lateinit var videoSource: VideoSource
+    private lateinit var videoTrack: VideoTrack
+    private lateinit var renderer: SurfaceViewRenderer
+    private lateinit var peerConnection: PeerConnection
+    private lateinit var eglBase: EglBase
+    private var signalingSocket: WebSocketClient? = null
+    private var selectedRole: String? = null
+
+    private lateinit var debugText: TextView
+    private lateinit var debugScroll: ScrollView
+
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val frameRunnable = object : Runnable {
+        override fun run() {
+            sendTestFrame()
+            handler.postDelayed(this, 100)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        PeerConnectionFactory.initialize(
+            PeerConnectionFactory.InitializationOptions
+                .builder(this)
+                .createInitializationOptions()
+        )
+
+        eglBase = EglBase.create()
+
+        val encoderFactory =
+            org.webrtc.DefaultVideoEncoderFactory(
+                eglBase.eglBaseContext,
+                true,
+                true
+            )
+
+        val decoderFactory =
+            org.webrtc.DefaultVideoDecoderFactory(
+                eglBase.eglBaseContext
+            )
+
+        factory = PeerConnectionFactory
+            .builder()
+            .setVideoEncoderFactory(encoderFactory)
+            .setVideoDecoderFactory(decoderFactory)
+            .createPeerConnectionFactory()
+
+        createInterface()
+
+        renderer.init(
+            eglBase.eglBaseContext,
+            null
+        )
+
+        renderer.setMirror(false)
+
+        videoSource = factory.createVideoSource(true)
+
+        videoTrack = factory.createVideoTrack(
+            "cloudscreen-video",
+            videoSource
+        )
+
+        videoTrack.addSink(renderer)
+
+        addDebug("APP STARTED")
+        addDebug("VIDEO PIPELINE CREATED")
+        addDebug("SELECT SENDER OR RECEIVER")
+
+        handler.post(frameRunnable)
+    }
+
+    private fun createInterface() {
+
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.HORIZONTAL
+        root.setBackgroundColor(Color.BLACK)
+
+        renderer = SurfaceViewRenderer(this)
+
+        val videoParams = LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            3f
+        )
+
+        root.addView(renderer, videoParams)
+
+        debugScroll = ScrollView(this)
+        debugScroll.setBackgroundColor(Color.rgb(20, 20, 20))
+
+        debugText = TextView(this)
+
+        debugText.setTextColor(Color.WHITE)
+        debugText.setTextSize(12f)
+        debugText.setPadding(12, 12, 12, 12)
+        debugText.gravity = Gravity.TOP
+        debugText.setTextIsSelectable(true)
+
+        debugScroll.addView(debugText)
+
+        val buttonPanel = LinearLayout(this)
+        buttonPanel.orientation = LinearLayout.VERTICAL
+        buttonPanel.setBackgroundColor(Color.rgb(25, 25, 25))
+
+        val senderButton = android.widget.Button(this)
+        senderButton.text = "SENDER / GÖNDERİCİ"
+        senderButton.setOnClickListener {
+            startAsRole("sender")
+        }
+
+        val receiverButton = android.widget.Button(this)
+        receiverButton.text = "RECEIVER / ALICI"
+        receiverButton.setOnClickListener {
+            startAsRole("receiver")
+        }
+
+        buttonPanel.addView(senderButton)
+        buttonPanel.addView(receiverButton)
+
+        val rightPanel = LinearLayout(this)
+        rightPanel.orientation = LinearLayout.VERTICAL
+
+        rightPanel.addView(
+            buttonPanel,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        rightPanel.addView(
+            debugScroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        val debugParams = LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            1f
+        )
+
+        root.addView(rightPanel, debugParams)
+
+        setContentView(root)
+    }
+
+    private fun startAsRole(role: String) {
+
+        if (selectedRole != null) {
+            addDebug("ROLE ALREADY SELECTED: $selectedRole")
+            return
+        }
+
+        selectedRole = role
+
+        addDebug("ROLE SELECTED: $role")
+        addDebug("CONNECTING TO SIGNALING")
+
+        connectToSignalingServer(role)
+    }
+
+    private fun addDebug(message: String) {
+
+        runOnUiThread {
+
+            debugText.append(
+                message + "\n"
+            )
+
+            debugScroll.post {
+                debugScroll.fullScroll(
+                    ScrollView.FOCUS_DOWN
+                )
+            }
+    }
+    }
+
+    private fun connectToSignalingServer(role: String) {
+
+        addDebug("CONNECTING TO SIGNALING")
+
+        val uri = URI(
+            "wss://cuddly-space-zebra-q7qp5rrr49jx245g5-3000.app.github.dev/"
+        )
+
+        signalingSocket = object : WebSocketClient(uri) {
+
+            override fun onOpen(handshakedata: ServerHandshake?) {
+                addDebug("SIGNALING CONNECTED")
+
+                send("""{"type":"join","room":"cloudscreen-test","role":"$role"}""")
+            }
+
+            override fun onMessage(message: String?) {
+                addDebug("SIGNALING MESSAGE: $message")
+
+                if (message?.contains("\"type\":\"joined\"") == true) {
+                    addDebug("ROOM JOINED: cloudscreen-test")
+                    createPeerConnection()
+                }
+
+                if (message?.contains("\"type\":\"peer_joined\"") == true) {
+                    addDebug("PEER JOINED")
+
+                }
+                if (message?.contains("\"type\":\"ice_candidate\"") == true) {
+                    try {
+                        val json = JSONObject(message)
+                        val candidate = IceCandidate(
+                            json.getString("sdpMid"),
+                            json.getInt("sdpMLineIndex"),
+                            json.getString("sdp")
+                        )
+
+                        peerConnection.addIceCandidate(candidate)
+                        addDebug("ICE CANDIDATE RECEIVED")
+                    } catch (e: Exception) {
+                        addDebug("ICE CANDIDATE ERROR: ${e.message}")
+                    }
+                }
+
+                if (message?.contains("answer") == true) {
+                    try {
+                        val json = JSONObject(message)
+                        val sdp = json.getString("sdp")
+
+                        addDebug("ANSWER RECEIVED")
+
+                        val remoteDescription =
+                            org.webrtc.SessionDescription(
+                                org.webrtc.SessionDescription.Type.ANSWER,
+                                sdp
+                            )
+
+                        peerConnection.setRemoteDescription(
+                            object : org.webrtc.SdpObserver {
+                                override fun onSetSuccess() {
+                                    addDebug("REMOTE ANSWER SET")
+                                    addDebug("SIGNALING COMPLETE")
+                                }
+
+                                override fun onSetFailure(error: String) {
+                                    addDebug("SET REMOTE ANSWER FAILED: $error")
+                                }
+
+                                override fun onCreateSuccess(
+                                    description: org.webrtc.SessionDescription
+                                ) {}
+
+                                override fun onCreateFailure(error: String) {}
+                            },
+                            remoteDescription
+                        )
+                    } catch (e: Exception) {
+                        addDebug("ANSWER PARSE ERROR: ${e.message}")
+                    }
+                }
+
+                if (message?.contains("\"type\":\"offer\"") == true) {
+                    try {
+                        val json = JSONObject(message)
+                        val sdp = json.getString("sdp")
+
+                        addDebug("OFFER RECEIVED")
+
+                        val remoteDescription =
+                            org.webrtc.SessionDescription(
+                                org.webrtc.SessionDescription.Type.OFFER,
+                                sdp
+                            )
+
+                        peerConnection.setRemoteDescription(
+                            object : org.webrtc.SdpObserver {
+
+                                override fun onSetSuccess() {
+                                    addDebug("REMOTE OFFER SET")
+
+                                    peerConnection.createAnswer(
+                                        object : org.webrtc.SdpObserver {
+
+                                            override fun onCreateSuccess(
+                                                description: org.webrtc.SessionDescription
+                                            ) {
+                                                addDebug("ANSWER CREATED")
+
+                                                peerConnection.setLocalDescription(
+                                                    object : org.webrtc.SdpObserver {
+
+                                                        override fun onSetSuccess() {
+                                                            addDebug("LOCAL ANSWER SET")
+
+                                                            val answerJson = JSONObject()
+                                                            answerJson.put("type", "answer")
+                                                            answerJson.put("sdp", description.description)
+
+                                                            signalingSocket?.send(
+                                                                answerJson.toString()
+                                                            )
+
+                                                            addDebug("ANSWER SENT")
+                                                        }
+
+                                                        override fun onSetFailure(error: String) {
+                                                            addDebug("SET ANSWER FAILED: $error")
+                                                        }
+
+                                                        override fun onCreateSuccess(description: org.webrtc.SessionDescription) {}
+                                                        override fun onCreateFailure(error: String) {}
+                                                    },
+                                                    description
+                                                )
+                                            }
+
+                                            override fun onCreateFailure(error: String) {
+                                                addDebug("ANSWER FAILED: $error")
+                                            }
+
+                                            override fun onSetSuccess() {}
+                                            override fun onSetFailure(error: String) {}
+                                        },
+                                        MediaConstraints()
+                                    )
+                                }
+
+                                override fun onSetFailure(error: String) {
+                                    addDebug("SET REMOTE OFFER FAILED: $error")
+                                }
+
+                                override fun onCreateSuccess(description: org.webrtc.SessionDescription) {}
+                                override fun onCreateFailure(error: String) {}
+                            },
+                            remoteDescription
+                        )
+
+                    } catch (e: Exception) {
+                        addDebug("OFFER PARSE ERROR: ${e.message}")
+                    }
+                }
+            }
+
+            override fun onClose(
+                code: Int,
+                reason: String?,
+                remote: Boolean
+            ) {
+                addDebug("SIGNALING CLOSED: $code $reason")
+            }
+
+            override fun onError(ex: Exception?) {
+                addDebug("SIGNALING ERROR: ${ex?.message}")
+            }
+        }
+
+        signalingSocket?.connect()
+    }
+
+    private fun createPeerConnection() {
+
+        addDebug("CREATING PEER CONNECTION")
+
+        val iceServers = listOf(
+            PeerConnection.IceServer.builder(
+                "stun:stun.l.google.com:19302"
+            ).createIceServer()
+        )
+
+        val configuration =
+            PeerConnection.RTCConfiguration(iceServers)
+
+        configuration.sdpSemantics =
+            PeerConnection.SdpSemantics.UNIFIED_PLAN
+
+        configuration.continualGatheringPolicy =
+            PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+
+        val observer = object : PeerConnection.Observer {
+
+            override fun onSignalingChange(
+                state: PeerConnection.SignalingState
+            ) {
+                addDebug("SIGNALING: $state")
+            }
+
+            override fun onIceConnectionChange(
+                state: PeerConnection.IceConnectionState
+            ) {
+                addDebug("ICE STATE: $state")
+            }
+
+            override fun onIceConnectionReceivingChange(
+                receiving: Boolean
+            ) {
+                addDebug("ICE RECEIVING: $receiving")
+            }
+
+            override fun onIceGatheringChange(
+                state: PeerConnection.IceGatheringState
+            ) {
+                addDebug("ICE GATHERING: $state")
+            }
+
+            override fun onIceCandidate(
+                candidate: IceCandidate
+            ) {
+                addDebug("ICE CANDIDATE:")
+                addDebug(candidate.sdp)
+
+                val candidateJson = JSONObject()
+                candidateJson.put("type", "ice_candidate")
+                candidateJson.put("sdp", candidate.sdp)
+                candidateJson.put("sdpMid", candidate.sdpMid)
+                candidateJson.put("sdpMLineIndex", candidate.sdpMLineIndex)
+
+                signalingSocket?.send(candidateJson.toString())
+                addDebug("ICE CANDIDATE SENT")
+            }
+
+            override fun onIceCandidatesRemoved(
+                candidates: Array<out IceCandidate>
+            ) {
+                addDebug(
+                    "ICE CANDIDATES REMOVED: ${candidates.size}"
+                )
+            }
+
+            override fun onAddStream(
+                stream: org.webrtc.MediaStream
+            ) {
+                addDebug("ADD STREAM")
+            }
+
+            override fun onRemoveStream(
+                stream: org.webrtc.MediaStream
+            ) {
+                addDebug("REMOVE STREAM")
+            }
+
+            override fun onDataChannel(
+                dataChannel: org.webrtc.DataChannel
+            ) {
+                addDebug("DATA CHANNEL")
+            }
+
+            override fun onRenegotiationNeeded() {
+                addDebug("RENEGOTIATION NEEDED")
+            }
+
+            override fun onTrack(
+                transceiver: org.webrtc.RtpTransceiver
+            ) {
+                addDebug("TRACK RECEIVED")
+            }
+        }
+
+        peerConnection = factory.createPeerConnection(
+            configuration,
+            observer
+        )!!
+
+        peerConnection.addTrack(videoTrack)
+
+        addDebug("SENDERS: " + peerConnection.senders.size)
+        addDebug("TRANSCEIVERS: " + peerConnection.transceivers.size)
+        for (transceiver in peerConnection.transceivers) {
+            addDebug("TRANSCEIVER: " + transceiver.mediaType + " / " + transceiver.direction)
+        }
+
+        addDebug("PEER CONNECTION CREATED")
+        addDebug("ICE AFTER CREATE: " + peerConnection.iceGatheringState())
+
+        if (selectedRole != "sender") {
+            addDebug("RECEIVER WAITING FOR OFFER")
+            return
+        }
+
+        addDebug("SENDER CREATING OFFER")
+
+        val offerConstraints = MediaConstraints()
+
+        peerConnection.createOffer(
+            object : org.webrtc.SdpObserver {
+
+                override fun onCreateSuccess(
+                    description: org.webrtc.SessionDescription
+                ) {
+                    addDebug("OFFER CREATED")
+
+                    peerConnection.setLocalDescription(
+                        object : org.webrtc.SdpObserver {
+
+                            override fun onSetSuccess() {
+                                addDebug(
+                                    "LOCAL DESCRIPTION SET"
+                                )
+
+                                addDebug(
+                                    "ICE GATHERING STATE: " + peerConnection.iceGatheringState()
+                                )
+
+                                addDebug(
+                                    "ICE CONNECTION STATE: " + peerConnection.iceConnectionState()
+                                )
+
+                                addDebug(
+                                    "LOCAL SDP:\\n" + peerConnection.localDescription?.description
+                                )
+
+                                if (signalingSocket?.isOpen == true) {
+                                    val offerJson = org.json.JSONObject()
+                                    offerJson.put("type", "offer")
+                                    offerJson.put("sdp", description.description)
+                                    signalingSocket?.send(offerJson.toString())
+                                    addDebug("OFFER SENT")
+                                }
+                            }
+
+                            override fun onSetFailure(
+                                error: String
+                            ) {
+                                addDebug(
+                                    "SET LOCAL FAILED: $error"
+                                )
+                            }
+
+                            override fun onCreateSuccess(
+                                description: org.webrtc.SessionDescription
+                            ) {
+                            }
+
+                            override fun onCreateFailure(
+                                error: String
+                            ) {
+                            }
+
+                        },
+                        description
+                    )
+                }
+
+                override fun onCreateFailure(
+                    error: String
+                ) {
+                    addDebug(
+                        "OFFER FAILED: $error"
+                    )
+                }
+
+                override fun onSetSuccess() {
+                }
+
+                override fun onSetFailure(
+                    error: String
+                ) {
+                }
+            },
+            offerConstraints
+        )
+    }
+
+    private fun sendTestFrame() {
+
+        val width = 640
+        val height = 360
+
+        val ySize = width * height
+        val uvWidth = (width + 1) / 2
+        val uvHeight = (height + 1) / 2
+        val uvSize = uvWidth * uvHeight
+
+        val y = ByteBuffer.allocateDirect(ySize)
+        val u = ByteBuffer.allocateDirect(uvSize)
+        val v = ByteBuffer.allocateDirect(uvSize)
+
+        val frameNumber =
+            (System.currentTimeMillis() / 100) % 256
+
+        for (i in 0 until ySize) {
+            y.put(frameNumber.toByte())
+        }
+
+        for (i in 0 until uvSize) {
+            u.put(128.toByte())
+            v.put(128.toByte())
+        }
+
+        y.rewind()
+        u.rewind()
+        v.rewind()
+
+        val buffer = JavaI420Buffer.wrap(
+            width,
+            height,
+            y,
+            width,
+            u,
+            uvWidth,
+            v,
+            uvWidth,
+            null
+        )
+
+        val frame = VideoFrame(
+            buffer,
+            0,
+            System.nanoTime()
+        )
+
+        videoSource.capturerObserver
+            .onFrameCaptured(frame)
+
+        frame.release()
+    }
+
+    override fun onDestroy() {
+
+        handler.removeCallbacks(frameRunnable)
+
+        if (::videoTrack.isInitialized) {
+            videoTrack.removeSink(renderer)
+            videoTrack.dispose()
+        }
+
+        if (::videoSource.isInitialized) {
+            videoSource.dispose()
+        }
+
+        if (::peerConnection.isInitialized) {
+            peerConnection.close()
+            peerConnection.dispose()
+        }
+
+        if (::renderer.isInitialized) {
+            renderer.release()
+        }
+
+        if (::eglBase.isInitialized) {
+            eglBase.release()
+        }
+
+        signalingSocket?.close()
+
+        if (::factory.isInitialized) {
+            factory.dispose()
+        }
+
+        super.onDestroy()
+    }
+}

@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "/home/codespace/.gradle/daemon/9.7.1/com.cloudscreen.app-debug-3:/layout_activity_main.xml.flat",
+        "source": "/home/codespace/.gradle/daemon/9.7.1/com.cloudscreen.app-main-5:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.cloudscreen.app-debug-3:/layout_activity_main.xml.flat",
+        "source": "com.cloudscreen.app-main-5:/layout/activity_main.xml"
+    }
+]

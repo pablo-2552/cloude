@@ -1,0 +1,4 @@
+ESKI APKLER SILINDI
+app/build/outputs/apk/debug/CloudScreen-2.13.apk
+app/build/outputs/apk/debug/CloudScreen-2.14.apk
+app/build/outputs/apk/debug/app-debug.apk

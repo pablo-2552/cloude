@@ -1,0 +1,3 @@
+com.cloudscreen:style/Theme.CloudScreen = 0x7f030000
+com.cloudscreen:layout/activity_main = 0x7f020000
+com.cloudscreen:id/videoRenderer = 0x7f010000

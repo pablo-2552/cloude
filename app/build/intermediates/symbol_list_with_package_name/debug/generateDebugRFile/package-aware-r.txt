@@ -1,0 +1,4 @@
+com.cloudscreen
+id videoRenderer
+layout activity_main
+style Theme_CloudScreen

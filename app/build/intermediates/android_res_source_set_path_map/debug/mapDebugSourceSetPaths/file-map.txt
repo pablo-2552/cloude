@@ -1,0 +1,7 @@
+com.cloudscreen.app-pngs-0 /workspaces/cloude/app/build/generated/res/pngs/debug
+com.cloudscreen.app-updated_navigation_xml-1 /workspaces/cloude/app/build/generated/updated_navigation_xml/debug
+com.cloudscreen.app-packageDebugResources-2 /workspaces/cloude/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
+com.cloudscreen.app-packageDebugResources-3 /workspaces/cloude/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
+com.cloudscreen.app-debug-4 /workspaces/cloude/app/build/intermediates/merged_res/debug/mergeDebugResources
+com.cloudscreen.app-debug-5 /workspaces/cloude/app/src/debug/res
+com.cloudscreen.app-main-6 /workspaces/cloude/app/src/main/res

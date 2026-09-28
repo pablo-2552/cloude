@@ -1,0 +1,3 @@
+int id videoRenderer 0x7f010000
+int layout activity_main 0x7f020000
+int style Theme_CloudScreen 0x7f030000
